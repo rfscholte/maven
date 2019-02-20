@@ -28,8 +28,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Properties;
-
-import org.apache.commons.lang3.StringUtils;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * <p>
@@ -65,6 +65,12 @@ import org.apache.commons.lang3.StringUtils;
 public class ComparableVersion
     implements Comparable<ComparableVersion>
 {
+    private static final int MAX_INT_LENGTH = 9; // String.valueOf( Integer.MAX_VALUE ).length();
+    
+    private static final int MAX_LONG_LENGTH = 18; // String.valueOf( Integer.MAX_VALUE ).length();
+    
+    private static final Pattern STRIPLEADINGZEROES = Pattern.compile( "^0+([^0]*.$)" );
+
     private String value;
 
     private String canonical;
@@ -126,20 +132,15 @@ public class ComparableVersion
             switch ( item.getType() )
             {
                 case INT_ITEM:
-                {
                     int itemValue = ( (IntItem) item ).value;
-                    return ( value < itemValue ) ? -1 : ( ( value == itemValue ) ? 0 : 1 );
-                }
+                    return Integer.compare( value, itemValue );
                 case LONG_ITEM:
                 case BIGINTEGER_ITEM:
                     return -1;
-
                 case STRING_ITEM:
                     return 1; // 1.1 > 1-sp
-
                 case LIST_ITEM:
                     return 1; // 1.1 > 1-1
-
                 default:
                     throw new IllegalStateException( "invalid item: " + item.getClass() );
             }
@@ -186,16 +187,12 @@ public class ComparableVersion
                 case INT_ITEM:
                     return 1;
                 case LONG_ITEM:
-                {
                     long itemValue = ( (LongItem) item ).value;
-                    return ( value < itemValue ) ? -1 : ( ( value == itemValue ) ? 0 : 1 );
-                }
+                    return Long.compare( value, itemValue );
                 case BIGINTEGER_ITEM:
                     return -1;
-
                 case STRING_ITEM:
                     return 1; // 1.1 > 1-sp
-
                 case LIST_ITEM:
                     return 1; // 1.1 > 1-1
 
@@ -245,16 +242,12 @@ public class ComparableVersion
                 case INT_ITEM:
                 case LONG_ITEM:
                     return 1;
-
                 case BIGINTEGER_ITEM:
                     return value.compareTo( ( (BigIntegerItem) item ).value );
-
                 case STRING_ITEM:
                     return 1; // 1.1 > 1-sp
-
                 case LIST_ITEM:
                     return 1; // 1.1 > 1-1
-
                 default:
                     throw new IllegalStateException( "invalid item: " + item.getClass() );
             }
@@ -273,7 +266,7 @@ public class ComparableVersion
         implements Item
     {
         private static final List<String> QUALIFIERS =
-                Arrays.asList( "alpha", "beta", "milestone", "rc", "snapshot", "", "sp"  );
+            Arrays.asList( "alpha", "beta", "milestone", "rc", "snapshot", "", "sp" );
 
         private static final Properties ALIASES = new Properties();
         static
@@ -310,7 +303,7 @@ public class ComparableVersion
                     default:
                 }
             }
-            this.value = ALIASES.getProperty( value , value );
+            this.value = ALIASES.getProperty( value, value );
         }
 
         public int getType()
@@ -324,14 +317,11 @@ public class ComparableVersion
         }
 
         /**
-         * Returns a comparable value for a qualifier.
-         *
-         * This method takes into account the ordering of known qualifiers then unknown qualifiers with lexical
-         * ordering.
-         *
-         * just returning an Integer with the index here is faster, but requires a lot of if/then/else to check for -1
-         * or QUALIFIERS.size and then resort to lexical ordering. Most comparisons are decided by the first character,
-         * so this is still fast. If more characters are needed then it requires a lexical sort anyway.
+         * Returns a comparable value for a qualifier. This method takes into account the ordering of known qualifiers
+         * then unknown qualifiers with lexical ordering. just returning an Integer with the index here is faster, but
+         * requires a lot of if/then/else to check for -1 or QUALIFIERS.size and then resort to lexical ordering. Most
+         * comparisons are decided by the first character, so this is still fast. If more characters are needed then it
+         * requires a lexical sort anyway.
          *
          * @param qualifier
          * @return an equivalent value that can be used with lexical comparison
@@ -572,12 +562,12 @@ public class ComparableVersion
         if ( isDigit )
         {
             buf = stripLeadingZeroes( buf );
-            if ( buf.length() <= 9 )
+            if ( buf.length() <= MAX_INT_LENGTH )
             {
                 // lower than 2^31
                 return new IntItem( buf );
             }
-            else if ( buf.length() <= 18 )
+            else if ( buf.length() <= MAX_LONG_LENGTH )
             {
                 // lower than 2^63
                 return new LongItem( buf );
@@ -589,10 +579,15 @@ public class ComparableVersion
 
     private static String stripLeadingZeroes( String buf )
     {
-        String strippedBuf = StringUtils.stripStart( buf, "0" );
-        if ( strippedBuf.isEmpty() )
-            return "0";
-        return strippedBuf;
+        Matcher m = STRIPLEADINGZEROES.matcher( buf );
+        if ( m.matches() )
+        {
+            return m.group( 1 );
+        }
+        else
+        {
+            return buf;
+        }
     }
 
     public int compareTo( ComparableVersion o )
@@ -625,8 +620,13 @@ public class ComparableVersion
      * Main to test version parsing and comparison.
      * <p>
      * To check how "1.2.7" compares to "1.2-SNAPSHOT", for example, you can issue
-     * <pre>java -jar ${maven.repo.local}/org/apache/maven/maven-artifact/${maven.version}/maven-artifact-${maven.version}.jar "1.2.7" "1.2-SNAPSHOT"</pre>
+     * 
+     * <pre>
+     * java -jar ${maven.repo.local}/org/apache/maven/maven-artifact/${maven.version}/maven-artifact-${maven.version}.jar "1.2.7" "1.2-SNAPSHOT"
+     * </pre>
+     * 
      * command to command line. Result of given command will be something like this:
+     * 
      * <pre>
      * Display parameters as parsed by Maven (in canonical form) and comparison result:
      * 1. 1.2.7 == 1.2.7
@@ -635,7 +635,7 @@ public class ComparableVersion
      * </pre>
      *
      * @param args the version strings to parse and compare. You can pass arbitrary number of version strings and always
-     * two adjacent will be compared
+     *            two adjacent will be compared
      */
     // CHECKSTYLE_ON: LineLength
     public static void main( String... args )
